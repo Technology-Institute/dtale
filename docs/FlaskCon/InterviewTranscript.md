@@ -126,3 +126,72 @@ def shutdown():
     return "Server shutting down..."
 ```
 
+Originally for the chart building functionality of D-Tale I was building my own UI in React using chart.js.  But eventually I ran into limintations with the availability of certain chart types.  Then I was given a recommendation to look at Plotly Dash and it was yet another revalation.  Plotly had an extensive selection of charts and it was already integrated into a Flask application.  So I just needed to find a way to integrate Dash into my Flask application (D-Tale).  Here's the way I solved it:
+
+```python
+import dash
+
+class MyDash(dash.Dash):
+    def __init__(self, *args, **kwargs):
+        # define any additional stylesheets or scripts...
+        super(MyDash, self).__init__(*args, **kwargs)
+    
+    def interpolate_index(self, **kwargs):
+        # this is where you would build your base layout...
+        return base_layout()
+
+# "app" is our Flask instance from earlier
+with app.app_context():
+
+    dash_app = MyDash(server=app, routes_pathname='/charts/', eager_loading=True)
+    dash_app.config.suppress_callback_exceptions = True
+    dash_app.layout = html.Div(
+        [dcc.Location(id="url", refresh=False), html.Div(id="popup-content")]
+    )
+    dash_app.scripts.config.serve_locally = True
+    dash_app.css.config.serve_locally = True
+
+    @dash_app.callback(
+        Output("popup-content", "children"),
+        [Input("url", "pathname"), Input("url", "search")],
+    )
+    def callback1(pathname, search):
+        dash_app.config.suppress_callback_exceptions = False
+        if pathname is None:
+            raise PreventUpdate
+        # build content for your page...
+        return popup_content
+
+    # define any other additional dash callbacks...
+```
+
+Viola! It took a while to get used to Dash's callback style approach, but you can see how easily you can add it your Flask app :)
+
+## If Theres Enough Time...
+
+### Exception Handling
+So after a while of maintaining D-TAle source code and continually adding new Flask routes I noticed that I was duplicating a lot of exception handling code.  So an easy way to minimize your try/except code was by doing the following:
+```python
+import traceback
+
+from flask import jsonify
+from functools import wraps
+
+def exception_decorator(func):
+    @wraps(func)
+    def _handle_exceptions(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except BaseException as e:
+            tb = traceback.format_exc()
+            return jsonify(dict(error=str(e), traceback=str(tb)))
+
+    return _handle_exceptions
+
+@app.route("/test-exception")
+@exception_decorator
+def test_exception():
+    raise Exception("test exception")
+```
+
+Now it should be noted that you can return whatever content you'd like for your users but in my case I'm dealing mainly in ajax responses and I just check the resulting JSON to see if the `error` property is populated and if it is render a generic Reactjs error component.
